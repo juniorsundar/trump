@@ -27,30 +27,11 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
-
-          # Use the Rust toolchain from fenix
           toolchain = fenix.packages.${system}.stable.toolchain;
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = toolchain;
-            rustc = toolchain;
-          };
         in
         {
-          default = rustPlatform.buildRustPackage {
-            pname = manifest.name;
-            version = manifest.version;
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-
-            nativeBuildInputs = [
-              pkgs.pkg-config
-            ];
-
-            buildInputs = [
-              pkgs.openssl
-              pkgs.libssh2
-              pkgs.zlib
-            ];
+          default = pkgs.callPackage ./nix/package.nix {
+            inherit toolchain manifest;
           };
         }
       );

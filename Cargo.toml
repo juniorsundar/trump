@@ -8,3 +8,9 @@ clap = "4.5.53"
 rpassword = "7.4.0"
 rustyline = "17.0.2"
 ssh2 = "0.9.5"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
