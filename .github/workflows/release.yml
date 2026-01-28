@@ -7,7 +7,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-latest]
+    
     permissions:
       contents: write
 
@@ -26,9 +31,13 @@ jobs:
       - name: Build release binary
         run: cargo build --release --verbose
 
+      - name: Rename binary
+        run: |
+          mv target/release/trump ./trump-${{ matrix.os }}
+
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: target/release/trump
+          files: ./trump-${{ matrix.os }}
           generate_release_notes: true
