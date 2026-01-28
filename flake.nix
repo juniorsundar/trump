@@ -30,14 +30,15 @@
         {
           default = pkgs.callPackage ./nix/package.nix { };
 
-          static = if pkgs.stdenv.isLinux then
-            (pkgs.pkgsMusl.callPackage ./nix/package.nix { }).overrideAttrs (old: {
-              PKG_CONFIG_ALL_STATIC = 1;
-              OPENSSL_STATIC = 1;
-              RUSTFLAGS = "-C target-feature=+crt-static";
-            })
-          else
-            null;
+          static =
+            if pkgs.stdenv.isLinux then
+              (pkgs.pkgsMusl.callPackage ./nix/package.nix { }).overrideAttrs (old: {
+                PKG_CONFIG_ALL_STATIC = 1;
+                OPENSSL_STATIC = 1;
+                RUSTFLAGS = "-C target-feature=+crt-static";
+              })
+            else
+              null;
         }
       );
 
@@ -51,6 +52,8 @@
           default = pkgs.mkShell {
             packages = [
               toolchain
+              pkgs.uv
+              pkgs.python3
               pkgs.pkg-config
               pkgs.openssl
               pkgs.libssh2
@@ -65,6 +68,19 @@
                   pkgs.zlib
                 ]
               }:$LD_LIBRARY_PATH
+
+
+              VENV_DIR=".venv"
+
+              if [ ! -d "$VENV_DIR" ]; then
+                  echo "Creating Python virtual environment at $VENV_DIR..."
+                  uv venv $VENV_DIR -p ${pkgs.python3}/bin/python
+              fi
+
+              source "$VENV_DIR/bin/activate"
+
+              uv pip install pre-commit
+              pre-commit install
             '';
           };
         }

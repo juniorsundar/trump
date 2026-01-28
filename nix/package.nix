@@ -7,6 +7,7 @@
   libssh2,
   zlib,
   stdenv,
+  perl,
 }:
 let
   manifest = (lib.importTOML ../Cargo.toml).package;
@@ -21,6 +22,7 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [
     pkg-config
+    perl
   ];
 
   buildInputs = [
@@ -35,7 +37,7 @@ rustPlatform.buildRustPackage {
     description = "Transparent Remote Utility, Multiple Protocols";
     homepage = "https://github.com/juniorsundar/trump";
     license = lib.licenses.bsd3;
-    maintainers = ["juniorsundar"];
+    maintainers = [ "juniorsundar" ];
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 }
