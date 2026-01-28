@@ -29,6 +29,15 @@
         in
         {
           default = pkgs.callPackage ./nix/package.nix { };
+
+          static = if pkgs.stdenv.isLinux then
+            (pkgs.pkgsMusl.callPackage ./nix/package.nix { }).overrideAttrs (old: {
+              PKG_CONFIG_ALL_STATIC = 1;
+              OPENSSL_STATIC = 1;
+              RUSTFLAGS = "-C target-feature=+crt-static";
+            })
+          else
+            null;
         }
       );
 

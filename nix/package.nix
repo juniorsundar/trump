@@ -21,15 +21,12 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [
     pkg-config
-    autoPatchelfHook
-    stdenv.cc
   ];
 
   buildInputs = [
     openssl
     libssh2
     zlib
-    stdenv.cc.cc
   ];
 
   dontStrip = false;

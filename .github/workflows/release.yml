@@ -1,43 +1,51 @@
-name: Release
+name: Release Static Binary
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*' # Trigger on tags like v1.0.0, v0.2.1-rc1, etc.
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-latest]
-    
+  build-and-release:
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Needed to upload assets to releases
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libssh2-1-dev zlib1g-dev
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build release binary
-        run: cargo build --release --verbose
-
-      - name: Rename binary
-        run: |
-          mv target/release/trump ./trump-${{ matrix.os }}
-
-      - name: Create Release and Upload Asset
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
         with:
-          files: ./trump-${{ matrix.os }}
-          generate_release_notes: true
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v14
+        with:
+          name: juniorsundar
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'      # Optional: Add caching here (see note below) to speed up builds significantly
+
+      - name: Build Static Binary
+        run: nix build .#static
+
+      - name: Prepare Binary for Release
+        run: |
+          # Nix builds result in a symlink called 'result'
+          # We resolve it and copy the binary out to rename it clearly
+          
+          # Replace 'trump' with your actual binary name if different
+          BINARY_NAME="trump" 
+          
+          cp result/bin/$BINARY_NAME $BINARY_NAME-x86_64-linux-musl
+          
+          # Verify it's actually static (optional, for logs)
+          file $BINARY_NAME-x86_64-linux-musl
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            trump-x86_64-linux-musl
+          draft: true       # Set to false if you want auto-publishing
+          prerelease: false

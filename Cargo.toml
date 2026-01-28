@@ -1,6 +1,6 @@
 [package]
 name = "trump"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,7 @@ clap = "4.5.53"
 rpassword = "7.4.0"
 rustyline = "17.0.2"
 ssh2 = "0.9.5"
+openssl = { version = "0.10", features = ["vendored"] }
 
 [profile.release]
 lto = true
