@@ -1,14 +1,15 @@
 {
-  pkgs,
   lib,
-  toolchain,
-  manifest,
+  rustPlatform,
+  pkg-config,
+  autoPatchelfHook,
+  openssl,
+  libssh2,
+  zlib,
+  stdenv,
 }:
 let
-  rustPlatform = pkgs.makeRustPlatform {
-    cargo = toolchain;
-    rustc = toolchain;
-  };
+  manifest = (lib.importTOML ../Cargo.toml).package;
 in
 rustPlatform.buildRustPackage {
   pname = manifest.name;
@@ -19,14 +20,16 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ../Cargo.lock;
 
   nativeBuildInputs = [
-    pkgs.pkg-config
-    pkgs.autoPatchelfHook
+    pkg-config
+    autoPatchelfHook
+    stdenv.cc
   ];
 
   buildInputs = [
-    pkgs.openssl
-    pkgs.libssh2
-    pkgs.zlib
+    openssl
+    libssh2
+    zlib
+    stdenv.cc.cc
   ];
 
   dontStrip = false;

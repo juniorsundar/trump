@@ -22,20 +22,6 @@
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
     in
     {
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
-          toolchain = fenix.packages.${system}.stable.toolchain;
-        in
-        {
-          default = pkgs.callPackage ./nix/package.nix {
-            inherit toolchain manifest;
-          };
-        }
-      );
-
       devShells = forAllSystems (
         system:
         let
