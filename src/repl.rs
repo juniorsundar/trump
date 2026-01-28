@@ -123,9 +123,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                                 }
                             }
                         }
-                        Err(_) => {
-                            // SFTP not available
-                        }
+                        Err(_) => {}
                     }
 
                     // Fallback: ls -d
@@ -133,7 +131,6 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                     let mut ls_channel = client.session.channel_session()?;
                     ls_channel.exec(&ls_cmd)?;
 
-                    // Drain output to ensure EOF
                     let mut tmp = String::new();
                     ls_channel.read_to_string(&mut tmp)?;
 
@@ -148,7 +145,6 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                 if !stderr.is_empty() {
                     eprintln!("Error changing directory: {}", stderr.trim());
                 } else {
-                    // If stderr is empty but we failed (and didn't trigger fallback success), show output or generic error
                     if !output.trim().is_empty() {
                         eprintln!("Error changing directory: {}", output.trim());
                     } else {
@@ -283,6 +279,17 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
         eprintln!("Editor exited with error");
     }
 
+    println!("Sync changes? [y/n]: ");
+    let mut response = String::new();
+    std::io::stdin()
+        .read_line(&mut response)
+        .expect("Failed to get input");
+    response.trim_end().to_string();
+    if response.eq("y") {
+        println!("Not syncing changes.");
+        return Ok(());
+    }
+
     // Upload (Copy Back)
     println!("Syncing back...");
     if is_dir {
@@ -402,6 +409,9 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
                 let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 1 {
+                    continue;
+                }
 
                 let cmd_name = parts[0];
                 let args = &parts[1..];
