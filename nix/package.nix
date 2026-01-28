@@ -37,7 +37,7 @@ rustPlatform.buildRustPackage {
   meta = {
     description = "Transparent Remote Utility, Multiple Protocols";
     homepage = "https://github.com/juniorsundar/trump";
-    license = manifest.license or lib.licenses.unfree;
+    license = lib.licenses.bsd3;
     maintainers = ["juniorsundar"];
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
