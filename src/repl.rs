@@ -30,7 +30,29 @@ fn get_commands() -> HashMap<String, ReplCommand> {
             name: "list".to_string(),
             description: "Aliases to remote 'ls'".to_string(),
             function: |client, _, args| {
-                let cmd = format!("ls {} -lah", args.join(" "));
+                let cmd = format!(
+                    "ls \"{}\" -lah {}",
+                    client.current_directory.display(),
+                    args.join(" ")
+                );
+                run_remote_command(client, &cmd)
+            },
+        },
+    );
+
+    commands.insert(
+        "cat".to_string(),
+        ReplCommand {
+            name: "cat".to_string(),
+            description: "Print file content".to_string(),
+            function: |client, _, args| {
+                if args.is_empty() {
+                    eprintln!("Usage: cat <file>");
+                    return Ok(());
+                }
+                let target = args[0];
+                let path = client.current_directory.join(target);
+                let cmd = format!("cat \"{}\"", path.display());
                 run_remote_command(client, &cmd)
             },
         },
@@ -40,8 +62,11 @@ fn get_commands() -> HashMap<String, ReplCommand> {
         "cwd".to_string(),
         ReplCommand {
             name: "cwd".to_string(),
-            description: "Prints remote working directory".to_string(),
-            function: |client, _, _| run_remote_command(client, "pwd"),
+            description: "Prints effective working directory".to_string(),
+            function: |client, _, _| {
+                println!("{}", client.current_directory.display());
+                Ok(())
+            },
         },
     );
 
@@ -64,19 +89,73 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                 channel.exec(&cmd)?;
 
                 let mut output = String::new();
-                Read::read_to_string(&mut channel, &mut output)?;
+                let mut stderr = String::new();
+                channel.read_to_string(&mut output)?;
+                channel.stderr().read_to_string(&mut stderr)?;
                 channel.wait_close()?;
 
                 let exit_status = channel.exit_status()?;
-                if exit_status != 0 {
-                    let mut stderr = String::new();
-                    channel.stderr().read_to_string(&mut stderr)?;
+
+                if exit_status == 0 && !output.trim().is_empty() {
+                    let resolved_path = output.trim();
+                    println!("Changed dir to {}", resolved_path);
+                    client.current_directory = PathBuf::from(resolved_path);
+                    return Ok(());
+                }
+
+                // Fallback for servers without 'cd' binary
+                let combined_out = format!("{}{}", output, stderr);
+                if combined_out.contains("exec: \"cd\"")
+                    || combined_out.contains("cd: command not found")
+                {
+                    // Try SFTP first
+                    match client.session.sftp() {
+                        Ok(sftp) => {
+                            // Note: sftp.stat might fail for "~" if not expanded
+                            if let Ok(stat) = sftp.stat(&new_path) {
+                                if stat.is_dir() {
+                                    println!("(Local) Changed dir to {}", new_path.display());
+                                    client.current_directory = new_path;
+                                    return Ok(());
+                                } else {
+                                    eprintln!("Error: Not a directory");
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // SFTP not available
+                        }
+                    }
+
+                    // Fallback: ls -d
+                    let ls_cmd = format!("ls -d \"{}\"", new_path.display());
+                    let mut ls_channel = client.session.channel_session()?;
+                    ls_channel.exec(&ls_cmd)?;
+
+                    // Drain output to ensure EOF
+                    let mut tmp = String::new();
+                    ls_channel.read_to_string(&mut tmp)?;
+
+                    ls_channel.wait_close()?;
+                    if ls_channel.exit_status()? == 0 {
+                        println!("(Local-Force) Changed dir to {}", new_path.display());
+                        client.current_directory = new_path;
+                        return Ok(());
+                    }
+                }
+
+                if !stderr.is_empty() {
                     eprintln!("Error changing directory: {}", stderr.trim());
                 } else {
-                    let resolved_path = output.trim();
-                    if !resolved_path.is_empty() {
-                        println!("Changed dir to {}", resolved_path);
-                        client.current_directory = PathBuf::from(resolved_path);
+                    // If stderr is empty but we failed (and didn't trigger fallback success), show output or generic error
+                    if !output.trim().is_empty() {
+                        eprintln!("Error changing directory: {}", output.trim());
+                    } else {
+                        eprintln!(
+                            "Error changing directory: Unknown error (exit status {})",
+                            exit_status
+                        );
                     }
                 }
                 Ok(())
@@ -129,9 +208,21 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     println!("Fetching {}...", remote_path.display());
 
     // Check Remote Type (File vs Dir)
-    let sftp = client.session.sftp()?;
-    let file_stat = sftp.stat(&remote_path)?;
-    let is_dir = file_stat.is_dir();
+    let is_dir = if let Ok(sftp) = client.session.sftp() {
+        match sftp.stat(&remote_path) {
+            Ok(file_stat) => file_stat.is_dir(),
+            Err(_) => false, // Assume file (or new file) if stat fails
+        }
+    } else {
+        // SFTP not available, fallback to ls -ld
+        let cmd = format!("ls -ld \"{}\"", remote_path.display());
+        let mut channel = client.session.channel_session()?;
+        channel.exec(&cmd)?;
+        let mut output = String::new();
+        channel.read_to_string(&mut output)?;
+        channel.wait_close()?;
+        output.trim().starts_with("d")
+    };
 
     if is_dir {
         // Directory: Use remote tar -> local tar
@@ -255,14 +346,44 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
 
 fn run_remote_command(client: &mut SSHClient, cmd: &str) -> ReplResult {
     let full_cmd = format!("cd \"{}\" && {}", client.current_directory.display(), cmd);
-    // println!("(Executing: {})", full_cmd);
 
     let mut channel = client.session.channel_session()?;
     channel.exec(&full_cmd)?;
     let mut output = String::new();
-    Read::read_to_string(&mut channel, &mut output)?;
-    println!("{}", output);
+    let mut stderr = String::new();
+
+    // Read both stdout and stderr
+    channel.read_to_string(&mut output)?;
+    channel.stderr().read_to_string(&mut stderr)?;
     channel.wait_close()?;
+
+    // Check for "cd" executable error
+    let combined_output = format!("{}{}", output, stderr);
+    if combined_output.contains("exec: \"cd\": executable file not found")
+        || combined_output.contains("cd: command not found")
+    {
+        // Fallback: run command directly without cd prefix
+        // println!("(Server doesn't support 'cd', running raw command)");
+        let mut channel_retry = client.session.channel_session()?;
+        channel_retry.exec(cmd)?;
+
+        let mut output_retry = String::new();
+        channel_retry.read_to_string(&mut output_retry)?;
+        let mut stderr_retry = String::new();
+        channel_retry.stderr().read_to_string(&mut stderr_retry)?;
+
+        println!("{}", output_retry);
+        if !stderr_retry.is_empty() {
+            eprint!("{}", stderr_retry);
+        }
+        channel_retry.wait_close()?;
+    } else {
+        println!("{}", output);
+        if !stderr.is_empty() {
+            eprint!("{}", stderr);
+        }
+    }
+
     Ok(())
 }
 

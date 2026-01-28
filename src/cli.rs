@@ -1,4 +1,4 @@
-use clap::{Command, arg};
+use clap::{arg, Command};
 
 pub fn cli() -> Command {
     Command::new("trump")
