@@ -163,7 +163,125 @@ fn get_commands() -> HashMap<String, ReplCommand> {
             function: cmd_edit,
         },
     );
+
+    commands.insert(
+        "copy".to_string(),
+        ReplCommand {
+            name: "copy".to_string(),
+            description: "Copy file/folder to local filesystem".to_string(),
+            function: cmd_copy,
+        },
+    );
+
     commands
+}
+
+fn fetch_remote_resource(
+    client: &mut SSHClient,
+    remote_path: &PathBuf,
+    local_path: &PathBuf,
+) -> Result<bool, Box<dyn Error>> {
+    println!("Fetching {}...", remote_path.display());
+
+    let is_dir = if let Ok(sftp) = client.session.sftp() {
+        match sftp.stat(remote_path) {
+            Ok(file_stat) => file_stat.is_dir(),
+            Err(_) => false,
+        }
+    } else {
+        let cmd = format!("ls -ld \"{}\"", remote_path.display());
+        let mut channel = client.session.channel_session()?;
+        channel.exec(&cmd)?;
+        let mut output = String::new();
+        channel.read_to_string(&mut output)?;
+        channel.wait_close()?;
+        output.trim().starts_with('d')
+    };
+
+    if is_dir {
+        // Directory: Use remote tar -> local tar
+        // Remote: tar -cf - -C <parent> <dirname>
+        let (parent, dirname) = if remote_path == &client.current_directory {
+            (remote_path.clone(), ".".to_string())
+        } else {
+            (
+                remote_path
+                    .parent()
+                    .unwrap_or(&PathBuf::from("."))
+                    .to_path_buf(),
+                remote_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        };
+
+        fs::create_dir_all(local_path)?;
+
+        let cmd_str = format!("tar -cf - -C {} {}", parent.display(), dirname);
+        let mut channel = client.session.channel_session()?;
+        channel.exec(&cmd_str)?;
+
+        // Spawn local tar to extract reading from channel stdout
+        let mut child = Command::new("tar")
+            .arg("-xf")
+            .arg("-")
+            .arg("-C")
+            .arg(local_path)
+            .arg("--strip-components=1")
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+
+        let mut stdin = child.stdin.take().expect("Failed to open stdin");
+        io::copy(&mut channel, &mut stdin)?;
+        child.wait()?;
+        channel.wait_close()?;
+    } else {
+        let (mut remote_file, _stat) = client.session.scp_recv(remote_path)?;
+        let mut local_file = fs::File::create(local_path)?;
+        io::copy(&mut remote_file, &mut local_file)?;
+    }
+
+    Ok(is_dir)
+}
+
+fn cmd_copy(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> ReplResult {
+    let target = if let Some(arg) = args.first() {
+        arg.to_string()
+    } else {
+        let input = rl.readline("File/Dir to copy [default: .]: ")?;
+        if input.trim().is_empty() {
+            ".".to_string()
+        } else {
+            input.trim().to_string()
+        }
+    };
+
+    let local_cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let local_cwd_str = local_cwd.to_string_lossy();
+
+    let destination = if let Some(arg) = args.get(1) {
+        arg.to_string()
+    } else {
+        let input = rl.readline(&format!(
+            "Destination directory [default: {}]: ",
+            local_cwd_str
+        ))?;
+        if input.trim().is_empty() {
+            local_cwd_str.to_string()
+        } else {
+            input.trim().to_string()
+        }
+    };
+
+    let remote_path = client.current_directory.join(&target);
+    let local_path = PathBuf::from(&destination).join(remote_path.file_name().unwrap_or_default());
+
+    fetch_remote_resource(client, &remote_path, &local_path)?;
+    println!("Copied to {}", local_path.display());
+
+    Ok(())
 }
 
 fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> ReplResult {
@@ -196,73 +314,7 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     };
     let local_path = temp_base.join(&local_name);
 
-    println!("Fetching {}...", remote_path.display());
-
-    // Check Remote Type (File vs Dir)
-    let is_dir = if let Ok(sftp) = client.session.sftp() {
-        match sftp.stat(&remote_path) {
-            Ok(file_stat) => file_stat.is_dir(),
-            Err(_) => false, // Assume file (or new file) if stat fails
-        }
-    } else {
-        // SFTP not available, fallback to ls -ld
-        let cmd = format!("ls -ld \"{}\"", remote_path.display());
-        let mut channel = client.session.channel_session()?;
-        channel.exec(&cmd)?;
-        let mut output = String::new();
-        channel.read_to_string(&mut output)?;
-        channel.wait_close()?;
-        output.trim().starts_with("d")
-    };
-
-    if is_dir {
-        // Directory: Use remote tar -> local tar
-        // Remote: tar -cf - -C <parent> <dirname>
-        let (parent, dirname) = if target == "." {
-            (remote_path.clone(), ".".to_string())
-        } else {
-            (
-                remote_path
-                    .parent()
-                    .unwrap_or(&PathBuf::from("."))
-                    .to_path_buf(),
-                remote_path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-            )
-        };
-
-        fs::create_dir_all(&local_path)?;
-
-        let cmd_str = format!("tar -cf - -C {} {}", parent.display(), dirname);
-        let mut channel = client.session.channel_session()?;
-        channel.exec(&cmd_str)?;
-
-        // Spawn local tar to extract reading from channel stdout
-        let mut child = Command::new("tar")
-            .arg("-xf")
-            .arg("-")
-            .arg("-C")
-            .arg(if target == "." {
-                &local_path
-            } else {
-                &temp_base
-            })
-            .arg("--strip-components=0")
-            .stdin(std::process::Stdio::piped())
-            .spawn()?;
-
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        io::copy(&mut channel, &mut stdin)?;
-        child.wait()?;
-        channel.wait_close()?;
-    } else {
-        let (mut remote_file, _stat) = client.session.scp_recv(&remote_path)?;
-        let mut local_file = fs::File::create(&local_path)?;
-        io::copy(&mut remote_file, &mut local_file)?;
-    }
+    let is_dir = fetch_remote_resource(client, &remote_path, &local_path)?;
 
     let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     println!("Opening in {}...", editor);
