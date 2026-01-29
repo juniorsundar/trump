@@ -1,6 +1,8 @@
 mod cli;
 mod repl;
 
+use clap::Parser;
+use cli::{Cli, Commands};
 use ssh2::{KeyboardInteractivePrompt, Prompt, Session};
 use std::{error::Error, io::Read, net::TcpStream, path::PathBuf};
 
@@ -39,13 +41,11 @@ pub struct SSHClient {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let matches = cli::cli().get_matches();
+    let args = Cli::parse();
 
-    match matches.subcommand() {
-        Some(("ssh", sub_matches)) => {
-            let user_hostname = sub_matches
-                .get_one::<String>("USER@HOSTNAME[:PORT]")
-                .expect("required");
+    match args.command {
+        Commands::Ssh { target } => {
+            let user_hostname = target;
             let user_hostname_vect: Vec<&str> = user_hostname.split("@").collect();
             if user_hostname_vect.len() != 2 {
                 eprintln!("Misformatted USER@HOSTNAME[:PORT]!");
@@ -64,7 +64,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ssh_connect(user, hostname, port)?;
             }
         }
-        _ => unreachable!(),
     }
 
     Ok(())
@@ -73,10 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn ssh_connect(user: &str, hostname: &str, port: Option<&str>) -> Result<(), Box<dyn Error>> {
     let password = rpassword::prompt_password("Password: ")?;
 
-    let port = match port {
-        Some(p) => p,
-        None => "22",
-    };
+    let port = port.unwrap_or("22");
     println!("{:?}", format!("{hostname}:{port}"));
     let tcp = TcpStream::connect(format!("{hostname}:{port}"))?;
     tcp.set_nodelay(true)?;
@@ -99,20 +95,20 @@ fn ssh_connect(user: &str, hostname: &str, port: Option<&str>) -> Result<(), Box
         println!("Warning: No authentication methods returned.");
     }
 
-    if !session.authenticated() {
-        if let Err(e) = session.userauth_password(user, &password) {
-            println!("Password authentication failed: {}", e);
-            let mut prompter = SimplePasswordPrompter {
-                password: password.clone(),
-            };
-            if let Err(e_ki) = session.userauth_keyboard_interactive(user, &mut prompter) {
-                println!("Keyboard-interactive authentication failed: {}", e_ki);
-                println!(
-                    "Checking authentication state after failures: {}",
-                    session.authenticated()
-                );
-                return Err(Box::new(e_ki));
-            }
+    if !session.authenticated()
+        && let Err(e) = session.userauth_password(user, &password)
+    {
+        println!("Password authentication failed: {}", e);
+        let mut prompter = SimplePasswordPrompter {
+            password: password.clone(),
+        };
+        if let Err(e_ki) = session.userauth_keyboard_interactive(user, &mut prompter) {
+            println!("Keyboard-interactive authentication failed: {}", e_ki);
+            println!(
+                "Checking authentication state after failures: {}",
+                session.authenticated()
+            );
+            return Err(Box::new(e_ki));
         }
     }
 

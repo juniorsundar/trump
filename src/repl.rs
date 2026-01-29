@@ -109,21 +109,18 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                     || combined_out.contains("cd: command not found")
                 {
                     // Try SFTP first
-                    match client.session.sftp() {
-                        Ok(sftp) => {
-                            // Note: sftp.stat might fail for "~" if not expanded
-                            if let Ok(stat) = sftp.stat(&new_path) {
-                                if stat.is_dir() {
-                                    println!("(Local) Changed dir to {}", new_path.display());
-                                    client.current_directory = new_path;
-                                    return Ok(());
-                                } else {
-                                    eprintln!("Error: Not a directory");
-                                    return Ok(());
-                                }
+                    if let Ok(sftp) = client.session.sftp() {
+                        // Note: sftp.stat might fail for "~" if not expanded
+                        if let Ok(stat) = sftp.stat(&new_path) {
+                            if stat.is_dir() {
+                                println!("(Local) Changed dir to {}", new_path.display());
+                                client.current_directory = new_path;
+                                return Ok(());
+                            } else {
+                                eprintln!("Error: Not a directory");
+                                return Ok(());
                             }
                         }
-                        Err(_) => {}
                     }
 
                     // Fallback: ls -d
@@ -144,16 +141,15 @@ fn get_commands() -> HashMap<String, ReplCommand> {
 
                 if !stderr.is_empty() {
                     eprintln!("Error changing directory: {}", stderr.trim());
+                } else if !output.trim().is_empty() {
+                    eprintln!("Error changing directory: {}", output.trim());
                 } else {
-                    if !output.trim().is_empty() {
-                        eprintln!("Error changing directory: {}", output.trim());
-                    } else {
-                        eprintln!(
-                            "Error changing directory: Unknown error (exit status {})",
-                            exit_status
-                        );
-                    }
+                    eprintln!(
+                        "Error changing directory: Unknown error (exit status {})",
+                        exit_status
+                    );
                 }
+
                 Ok(())
             },
         },
@@ -171,7 +167,6 @@ fn get_commands() -> HashMap<String, ReplCommand> {
 }
 
 fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> ReplResult {
-    // 1. Resolve Target
     let target = if let Some(arg) = args.first() {
         arg.to_string()
     } else {
@@ -284,8 +279,8 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     std::io::stdin()
         .read_line(&mut response)
         .expect("Failed to get input");
-    response.trim_end().to_string();
-    if response.eq("y") {
+
+    if response.trim().eq_ignore_ascii_case("n") {
         println!("Not syncing changes.");
         return Ok(());
     }
@@ -409,7 +404,7 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() < 1 {
+                if parts.is_empty() {
                     continue;
                 }
 
