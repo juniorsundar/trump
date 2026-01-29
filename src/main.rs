@@ -44,13 +44,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     match matches.subcommand() {
         Some(("ssh", sub_matches)) => {
             let user_hostname = sub_matches
-                .get_one::<String>("USER@HOSTNAME")
+                .get_one::<String>("USER@HOSTNAME[:PORT]")
                 .expect("required");
             let user_hostname_vect: Vec<&str> = user_hostname.split("@").collect();
             if user_hostname_vect.len() != 2 {
-                panic!("Incorrect SSH address: {}", user_hostname)
+                eprintln!("Misformatted USER@HOSTNAME[:PORT]!");
+                return Err("Incorrect SSH address formatting!".into());
             } else {
-                ssh_connect(user_hostname_vect[0], user_hostname_vect[1])?;
+                let user = user_hostname_vect[0];
+                let hostname_port: Vec<&str> = user_hostname_vect[1].split(":").collect();
+                let (hostname, port) = match hostname_port.len() {
+                    1 => (hostname_port[0], None),
+                    2 => (hostname_port[0], Some(hostname_port[1])),
+                    _ => {
+                        eprintln!("Misformatted USER@HOSTNAME:PORT!");
+                        return Err("Incorrect SSH address formatting!".into());
+                    }
+                };
+                ssh_connect(user, hostname, port)?;
             }
         }
         _ => unreachable!(),
@@ -59,10 +70,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn ssh_connect(user: &str, hostname: &str) -> Result<(), Box<dyn Error>> {
+fn ssh_connect(user: &str, hostname: &str, port: Option<&str>) -> Result<(), Box<dyn Error>> {
     let password = rpassword::prompt_password("Password: ")?;
 
-    let port = "22";
+    let port = match port {
+        Some(p) => p,
+        None => "22",
+    };
+    println!("{:?}", format!("{hostname}:{port}"));
     let tcp = TcpStream::connect(format!("{hostname}:{port}"))?;
     tcp.set_nodelay(true)?;
     let mut session = Session::new()?;

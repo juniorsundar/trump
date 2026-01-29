@@ -7,5 +7,5 @@ pub fn cli() -> Command {
         .subcommands([Command::new("ssh")
             .about("Connect to filesystem over ssh")
             .arg_required_else_help(true)
-            .arg(arg!(<"USER@HOSTNAME">))])
+            .arg(arg!(<"USER@HOSTNAME[:PORT]">))])
 }
