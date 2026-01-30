@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/juniorsundar/trump/compare/v0.3.0...v0.3.1) (2026-01-30)
+
+
+### Continuous Integration
+
+* Supports macOS-darwin as well ([dbb0cde](https://github.com/juniorsundar/trump/commit/dbb0cdefa3b4c7c294cc6bab1947a308afdf52fc))
+
 ## [0.3.0](https://github.com/juniorsundar/trump/compare/v0.2.0...v0.3.0) (2026-01-30)
 
 
