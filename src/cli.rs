@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -17,5 +19,9 @@ pub enum Commands {
     Ssh {
         #[arg(value_name = "USER@HOSTNAME[:PORT]")]
         target: String,
+
+        /// Optional identity key file (private key)
+        #[arg(short, long)]
+        identity: Option<PathBuf>,
     },
 }
