@@ -27,25 +27,26 @@ jobs:
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'      # Optional: Add caching here (see note below) to speed up builds significantly
 
       - name: Build Static Binary
-        run: nix build .#static
+        run: |
+          # Build x86_64
+          nix build .#static --accept-flake-config
+          cp result/bin/trump trump-x86_64-linux-musl
+
+          # Build aarch64
+          nix build .#static-aarch64 --accept-flake-config
+          cp result/bin/trump trump-aarch64-linux-musl
 
       - name: Prepare Binary for Release
         run: |
-          # Nix builds result in a symlink called 'result'
-          # We resolve it and copy the binary out to rename it clearly
-          
-          # Replace 'trump' with your actual binary name if different
-          BINARY_NAME="trump" 
-          
-          cp result/bin/$BINARY_NAME $BINARY_NAME-x86_64-linux-musl
-          
           # Verify it's actually static (optional, for logs)
-          file $BINARY_NAME-x86_64-linux-musl
+          file trump-x86_64-linux-musl
+          file trump-aarch64-linux-musl
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             trump-x86_64-linux-musl
+            trump-aarch64-linux-musl
           draft: true       # Set to false if you want auto-publishing
           prerelease: false

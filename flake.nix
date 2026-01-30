@@ -7,6 +7,13 @@
     };
   };
 
+  nixConfig = {
+    extra-substituters = [ "https://juniorsundar.cachix.org" ];
+    extra-trusted-public-keys = [
+      "juniorsundar.cachix.org-1:uqJiixfUhyfDgFiAscCzg26tblbQ0FmK7agtDleXM4c="
+    ];
+  };
+
   outputs =
     {
       self,
@@ -33,6 +40,16 @@
           static =
             if pkgs.stdenv.isLinux then
               (pkgs.pkgsMusl.callPackage ./nix/package.nix { }).overrideAttrs (old: {
+                PKG_CONFIG_ALL_STATIC = 1;
+                OPENSSL_STATIC = 1;
+                RUSTFLAGS = "-C target-feature=+crt-static";
+              })
+            else
+              null;
+
+          static-aarch64 =
+            if pkgs.stdenv.isLinux then
+              (pkgs.pkgsCross.aarch64-multiplatform-musl.callPackage ./nix/package.nix { }).overrideAttrs (old: {
                 PKG_CONFIG_ALL_STATIC = 1;
                 OPENSSL_STATIC = 1;
                 RUSTFLAGS = "-C target-feature=+crt-static";
