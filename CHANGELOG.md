@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/juniorsundar/trump/compare/v0.2.0...v0.3.0) (2026-01-30)
+
+
+### Features
+
+* **ssh:** Implemented "copy" functionality ([36e19d3](https://github.com/juniorsundar/trump/commit/36e19d3d0149c3f8d7a26f43d31db59943ca9414))
+
+
+### Continuous Integration
+
+* Implement aarch64 build as well ([010c74c](https://github.com/juniorsundar/trump/commit/010c74c7c488d9f492bb4923e3cfa49a3bf3fefb))
+
 ## [0.2.0](https://github.com/juniorsundar/trump/compare/v0.2.0...v0.2.0) (2026-01-29)
 
 
