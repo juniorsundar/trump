@@ -84,154 +84,127 @@ fn ssh_connect(
     identity: Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
     let port = port.unwrap_or("22");
-    println!("{} {}:{}", "Connecting to".cyan(), hostname, port);
 
-    let tcp = TcpStream::connect(format!("{hostname}:{port}"))?;
-    tcp.set_nodelay(true)?;
-    let mut session = Session::new()?;
-    session.set_tcp_stream(tcp);
-    session.set_blocking(true);
-    session.handshake()?;
-
-    if let Some(banner) = session.banner() {
-        println!("{} {}", "Server Banner:".dimmed(), banner.trim());
-    }
-
-    let mut config = config::load_config().unwrap_or_else(|e| {
-        eprintln!("{} {}", "Warning: Could not load config:".yellow(), e);
+    let config = config::load_config().unwrap_or_else(|e| {
+        eprintln!("{} {}.", "Warning: Could not load config:".yellow(), e);
         config::Config::default()
     });
     let config_key = format!("{}@{}:{}", user, hostname, port);
 
-    let mut authenticated = false;
-    let mut used_identity_path: Option<PathBuf> = None;
+    let mut session_opt: Option<Session> = None;
 
-    if !authenticated && let Some(raw_path) = &identity {
-        // Canonicalize to absolute path to ensure it works from any CWD
-        let path = raw_path.canonicalize().unwrap_or(raw_path.clone());
-        println!("{} {:?}", "Trying identity file:".blue(), path);
+    {
+        println!("{} {}:{}.", "Connecting to".cyan(), hostname, port);
+        let tcp = TcpStream::connect(format!("{hostname}:{port}"))?;
+        tcp.set_nodelay(true)?;
+        let mut session = Session::new()?;
+        session.set_tcp_stream(tcp);
+        session.set_blocking(true);
+        session.handshake()?;
 
-        if session
-            .userauth_pubkey_file(user, None, &path, None)
-            .is_ok()
-        {
-            println!("{}", "✔ Authenticated with identity file".green().bold());
-            authenticated = true;
-            used_identity_path = Some(path);
-        } else {
-            println!("{}", "✖ Identity file authentication failed".red());
+        if let Some(banner) = session.banner() {
+            println!("{} {}", "Server Banner:".dimmed(), banner.trim());
         }
-    }
 
-    if !authenticated && let Some(auth_data) = config.targets.get(&config_key) {
-        match &auth_data.auth_type {
-            config::AuthType::Password => {
-                println!(
-                    "{}",
-                    "Found saved password. Attempting auto-login...".cyan()
-                );
-                match config::decrypt(&auth_data.secret) {
-                    Ok(password) => {
-                        if session.userauth_password(user, &password).is_ok() {
-                            println!("{}", "✔ Auto-login successful!".green().bold());
-                            authenticated = true;
-                        } else {
-                            println!("{}", "✖ Saved password failed.".red());
-                        }
-                    }
-                    Err(e) => eprintln!("{} {}", "Failed to decrypt saved password:".red(), e),
-                }
-            }
-            config::AuthType::KeyPath => {
-                let path = PathBuf::from(&auth_data.secret);
-                println!("{} {:?}", "Found saved identity key:".cyan(), path);
-                if session
-                    .userauth_pubkey_file(user, None, &path, None)
-                    .is_ok()
-                {
-                    println!("{}", "✔ Auto-login successful!".green().bold());
-                    authenticated = true;
-                } else {
-                    println!("{}", "✖ Saved identity key failed.".red());
-                }
-            }
-        }
-    }
+        let _ = session.auth_methods(user);
 
-    if !authenticated {
-        println!("{}", "Trying SSH Agent...".blue());
-        if session.userauth_agent(user).is_ok() {
-            println!("{}", "✔ Authenticated with SSH Agent.".green().bold());
-            authenticated = true;
-        } else {
-            println!("{}", "✖ SSH Agent authentication failed.".dimmed());
-        }
-    }
-
-    let mut password_used = String::new();
-    if !authenticated {
-        println!("{}", "Falling back to interactive password...".yellow());
-        if !session.authenticated() {
-            let password = rpassword::prompt_password("Password: ")?;
-            password_used = password.clone();
-
-            if session.userauth_password(user, &password).is_err() {
-                let mut prompter = SimplePasswordPrompter {
-                    password: password.clone(),
-                };
-                if session
-                    .userauth_keyboard_interactive(user, &mut prompter)
-                    .is_err()
-                {
-                    return Err(format!(
-                        "{}",
-                        "Authentication failed. Please check your credentials."
-                            .red()
-                            .bold()
-                    )
-                    .into());
-                }
-            }
-        }
-    }
-
-    if !session.authenticated() {
-        return Err(format!("{}", "Authentication failed.".red().bold()).into());
-    }
-
-    if !config.targets.contains_key(&config_key) {
-        if let Some(path) = used_identity_path {
+        let mut authenticated = session.authenticated();
+        if authenticated {
             println!(
-                "{} {:?}",
-                "Login successful with identity file:".green(),
-                path
+                "{}",
+                "✔ Authenticated (No credentials required).".green().bold()
             );
-            print!(
-                "{} ",
-                format!(
-                    "Do you want to save this key as default for {}? [y/N]",
-                    config_key
-                )
-                .yellow()
-                .bold()
-            );
-            std::io::stdout().flush()?;
+        }
 
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
-            if input.trim().eq_ignore_ascii_case("y") {
-                config.targets.insert(
-                    config_key.clone(),
-                    config::AuthData {
-                        auth_type: config::AuthType::KeyPath,
-                        secret: path.to_string_lossy().to_string(),
-                    },
-                );
-                config::save_config(&config)?;
-                println!("{}", "✔ Identity key saved!".green().bold());
+        if !authenticated && let Some(raw_path) = &identity {
+            let path = raw_path.canonicalize().unwrap_or(raw_path.clone());
+            println!("{} {:?}.", "Trying identity file:".blue(), path);
+            if session
+                .userauth_pubkey_file(user, None, &path, None)
+                .is_ok()
+            {
+                println!("{}", "✔ Authenticated with identity file.".green().bold());
+                authenticated = true;
+            } else {
+                println!("{}", "✖ Identity file authentication failed!".red());
             }
-        } else if !password_used.is_empty() {
-            println!("{}", "Login successful.".green());
+        }
+
+        if !authenticated && let Some(auth_data) = config.targets.get(&config_key) {
+            match &auth_data.auth_type {
+                config::AuthType::Password => {
+                    println!("{}", "Found saved password. Attempting auto-login.".cyan());
+                    match config::decrypt(&auth_data.secret) {
+                        Ok(password) => {
+                            if session.userauth_password(user, &password).is_ok() {
+                                println!("{}", "✔ Auto-login successful.".green().bold());
+                                authenticated = true;
+                            } else {
+                                println!("{}", "✖ Saved password failed!".red());
+                            }
+                        }
+                        Err(e) => eprintln!("{} {}!", "Failed to decrypt saved password:".red(), e),
+                    }
+                }
+                config::AuthType::KeyPath => {
+                    let path = PathBuf::from(&auth_data.secret);
+                    println!("{} {:?}.", "Found saved identity key:".cyan(), path);
+                    if session
+                        .userauth_pubkey_file(user, None, &path, None)
+                        .is_ok()
+                    {
+                        println!("{}", "✔ Auto-login successful.".green().bold());
+                        authenticated = true;
+                    } else {
+                        println!("{}", "✖ Saved identity key failed!".red());
+                    }
+                }
+            }
+        }
+
+        if authenticated {
+            session_opt = Some(session);
+        }
+    }
+
+    let session = if let Some(s) = session_opt {
+        s
+    } else {
+        println!("{}", "Falling back to interactive password.".yellow());
+        let password = rpassword::prompt_password("Password: ")?;
+
+        println!("{} {}:{}.", "Reconnecting to".cyan(), hostname, port);
+        let tcp = TcpStream::connect(format!("{hostname}:{port}"))?;
+        tcp.set_nodelay(true)?;
+        let mut session = Session::new()?;
+        session.set_tcp_stream(tcp);
+        session.set_blocking(true);
+        session.handshake()?;
+
+        if let Some(banner) = session.banner() {
+            println!("{} {}", "Server Banner:".dimmed(), banner.trim());
+        }
+
+        let _ = session.auth_methods(user);
+
+        if let Err(e) = session.userauth_password(user, &password) {
+            println!("Password auth failed: {}.", e);
+            let mut prompter = SimplePasswordPrompter {
+                password: password.clone(),
+            };
+            if let Err(e_ki) = session.userauth_keyboard_interactive(user, &mut prompter) {
+                println!("Keyboard-interactive auth failed: {}.", e_ki);
+                return Err(format!(
+                    "{}",
+                    "Authentication failed. Please check your credentials!"
+                        .red()
+                        .bold()
+                )
+                .into());
+            }
+        }
+
+        if !config.targets.contains_key(&config_key) {
             print!(
                 "{} ",
                 "Do you want to save this password for auto-login? [y/N]"
@@ -239,25 +212,29 @@ fn ssh_connect(
                     .bold()
             );
             std::io::stdout().flush()?;
-
             let mut input = String::new();
             std::io::stdin().read_line(&mut input)?;
-            if input.trim().eq_ignore_ascii_case("y") {
-                let encrypted = config::encrypt(&password_used)?;
-                config.targets.insert(
+            if input.trim().eq_ignore_ascii_case("y")
+                && let Ok(encrypted) = config::encrypt(&password)
+            {
+                let mut new_config = config;
+                new_config.targets.insert(
                     config_key,
                     config::AuthData {
                         auth_type: config::AuthType::Password,
                         secret: encrypted,
                     },
                 );
-                config::save_config(&config)?;
-                println!("{}", "✔ Credentials saved!".green().bold());
+                config::save_config(&new_config)?;
+                println!("{}", "✔ Credentials saved.".green().bold());
             }
         }
-    }
+
+        session
+    };
 
     let mut pwd_channel = session.channel_session()?;
+
     pwd_channel.exec("pwd -P")?;
 
     let mut raw_pwd = String::new();

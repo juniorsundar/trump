@@ -48,7 +48,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
             description: "Print file content".to_string(),
             function: |client, _, args| {
                 if args.is_empty() {
-                    eprintln!("{}", "Usage: cat <file>".red());
+                    eprintln!("{}", "Usage: cat <file>.".red());
                     return Ok(());
                 }
                 let target = args[0];
@@ -99,7 +99,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
 
                 if exit_status == 0 && !output.trim().is_empty() {
                     let resolved_path = output.trim();
-                    println!("{} {}", "Changed dir to".green(), resolved_path);
+                    println!("{} {}.", "Changed dir to".green(), resolved_path);
                     client.current_directory = PathBuf::from(resolved_path);
                     return Ok(());
                 }
@@ -115,14 +115,14 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                     {
                         if stat.is_dir() {
                             println!(
-                                "{} {}",
+                                "{} {}.",
                                 "(Local) Changed dir to".green(),
                                 new_path.display()
                             );
                             client.current_directory = new_path;
                             return Ok(());
                         } else {
-                            eprintln!("{}", "Error: Not a directory".red());
+                            eprintln!("{}", "Error: Not a directory!".red());
                             return Ok(());
                         }
                     }
@@ -138,7 +138,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                     ls_channel.wait_close()?;
                     if ls_channel.exit_status()? == 0 {
                         println!(
-                            "{} {}",
+                            "{} {}.",
                             "(Local-Force) Changed dir to".green(),
                             new_path.display()
                         );
@@ -148,9 +148,9 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                 }
 
                 if !stderr.is_empty() {
-                    eprintln!("{} {}", "Error changing directory:".red(), stderr.trim());
+                    eprintln!("{} {}!", "Error changing directory:".red(), stderr.trim());
                 } else if !output.trim().is_empty() {
-                    eprintln!("{} {}", "Error changing directory:".red(), output.trim());
+                    eprintln!("{} {}!", "Error changing directory:".red(), output.trim());
                 } else {
                     eprintln!(
                         "{} {} {}",
@@ -191,7 +191,7 @@ fn fetch_remote_resource(
     remote_path: &PathBuf,
     local_path: &PathBuf,
 ) -> Result<bool, Box<dyn Error>> {
-    println!("{} {}", "Fetching".cyan(), remote_path.display());
+    println!("{} {}.", "Fetching".cyan(), remote_path.display());
 
     let is_dir = if let Ok(sftp) = client.session.sftp() {
         match sftp.stat(remote_path) {
@@ -289,7 +289,7 @@ fn cmd_copy(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     let local_path = PathBuf::from(&destination).join(remote_path.file_name().unwrap_or_default());
 
     fetch_remote_resource(client, &remote_path, &local_path)?;
-    println!("{} {}", "Copied to".green(), local_path.display());
+    println!("{} {}.", "Copied to".green(), local_path.display());
 
     Ok(())
 }
@@ -327,13 +327,13 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     let is_dir = fetch_remote_resource(client, &remote_path, &local_path)?;
 
     let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    println!("{} {}", "Opening in".cyan(), editor);
+    println!("{} {}.", "Opening in".cyan(), editor);
 
     let edit_target = local_path.clone();
 
     let status = Command::new(&editor).arg(&edit_target).status()?;
     if !status.success() {
-        eprintln!("{}", "Editor exited with error".red());
+        eprintln!("{}", "Editor exited with error!".red());
     }
 
     print!("{} ", "Sync changes? [y/n]:".yellow().bold());
@@ -350,7 +350,7 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     }
 
     // Upload (Copy Back)
-    println!("{}", "Syncing back".cyan());
+    println!("{}", "Syncing back.".cyan());
     if is_dir {
         let (local_parent, local_dirname, remote_dest) = if target == "." {
             (
@@ -429,7 +429,7 @@ fn run_remote_command(client: &mut SSHClient, cmd: &str) -> ReplResult {
         || combined_output.contains("cd: command not found")
     {
         // Fallback: run command directly without cd prefix
-        // println!("(Server doesn't support 'cd', running raw command)");
+        // println!("(Server doesn't support 'cd', running raw command).");
         let mut channel_retry = client.session.channel_session()?;
         channel_retry.exec(cmd)?;
 
@@ -502,14 +502,14 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
                                 format!("{} {}", stripped_prefix, &args.join(" ")).as_str(),
                             )?;
                         } else {
-                            println!("{} {}", "Unknown command.".red(), "Try 'help'".yellow());
+                            println!("{} {}", "Unknown command!".red(), "Try 'help'.".yellow());
                         }
                     }
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
             Err(err) => {
-                println!("{} {:?}", "Error:".red(), err);
+                println!("{} {:?}!", "Error:".red(), err);
                 break;
             }
         }

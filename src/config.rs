@@ -42,7 +42,7 @@ fn get_or_create_key() -> Result<Key<Aes256Gcm>, Box<dyn std::error::Error>> {
         let key_str = fs::read_to_string(&key_path)?;
         let key_bytes = general_purpose::STANDARD.decode(key_str.trim())?;
         if key_bytes.len() != 32 {
-            return Err(format!("Invalid key length in {:?}", key_path).into());
+            return Err(format!("Invalid key length in {:?}!", key_path).into());
         }
         Ok(*Key::<Aes256Gcm>::from_slice(&key_bytes))
     } else {
@@ -69,7 +69,7 @@ pub fn encrypt(data: &str) -> Result<String, Box<dyn std::error::Error>> {
 
     let ciphertext = cipher
         .encrypt(nonce, data.as_bytes())
-        .map_err(|e| format!("Encryption failure: {}", e))?;
+        .map_err(|e| format!("Encryption failure: {}!", e))?;
 
     // Combine nonce + ciphertext
     let mut combined = nonce_bytes.to_vec();
@@ -92,7 +92,7 @@ pub fn decrypt(encrypted_data: &str) -> Result<String, Box<dyn std::error::Error
 
     let plaintext = cipher
         .decrypt(nonce, ciphertext_bytes)
-        .map_err(|e| format!("Decryption failure: {}", e))?;
+        .map_err(|e| format!("Decryption failure: {}!", e))?;
 
     Ok(String::from_utf8(plaintext)?)
 }
