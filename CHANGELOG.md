@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/juniorsundar/trump/compare/v0.3.1...v0.4.0) (2026-01-30)
+
+
+### Features
+
+* **auth:** Password/IdentityKey with saving auths ([6111e65](https://github.com/juniorsundar/trump/commit/6111e65b0272e220bd1d6d99c2d0f5526a08ab7d))
+* **logging:** Pretty printing ([2d997fd](https://github.com/juniorsundar/trump/commit/2d997fdd638ad9cbb660981de9390d4a47256cbf))
+
+
+### Bug Fixes
+
+* Passthrough if authentication succeeds without password ([82e601e](https://github.com/juniorsundar/trump/commit/82e601e62c11f7eb8112644236530a35672da274))
+
 ## [0.3.1](https://github.com/juniorsundar/trump/compare/v0.3.0...v0.3.1) (2026-01-30)
 
 
