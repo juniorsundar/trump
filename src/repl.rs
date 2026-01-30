@@ -1,11 +1,12 @@
 use crate::SSHClient;
-use rustyline::DefaultEditor;
-use rustyline::error::ReadlineError;
+use colored::*;
+use rustyline::{DefaultEditor, error::ReadlineError};
 use std::{
     collections::HashMap,
     env,
     error::Error,
     fs,
+    io::Write,
     io::{self, Read},
     path::PathBuf,
     process::Command,
@@ -47,7 +48,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
             description: "Print file content".to_string(),
             function: |client, _, args| {
                 if args.is_empty() {
-                    eprintln!("Usage: cat <file>");
+                    eprintln!("{}", "Usage: cat <file>".red());
                     return Ok(());
                 }
                 let target = args[0];
@@ -64,7 +65,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
             name: "cwd".to_string(),
             description: "Prints effective working directory".to_string(),
             function: |client, _, _| {
-                println!("{}", client.current_directory.display());
+                println!("{}", client.current_directory.display().to_string().cyan());
                 Ok(())
             },
         },
@@ -98,7 +99,7 @@ fn get_commands() -> HashMap<String, ReplCommand> {
 
                 if exit_status == 0 && !output.trim().is_empty() {
                     let resolved_path = output.trim();
-                    println!("Changed dir to {}", resolved_path);
+                    println!("{} {}", "Changed dir to".green(), resolved_path);
                     client.current_directory = PathBuf::from(resolved_path);
                     return Ok(());
                 }
@@ -109,17 +110,20 @@ fn get_commands() -> HashMap<String, ReplCommand> {
                     || combined_out.contains("cd: command not found")
                 {
                     // Try SFTP first
-                    if let Ok(sftp) = client.session.sftp() {
-                        // Note: sftp.stat might fail for "~" if not expanded
-                        if let Ok(stat) = sftp.stat(&new_path) {
-                            if stat.is_dir() {
-                                println!("(Local) Changed dir to {}", new_path.display());
-                                client.current_directory = new_path;
-                                return Ok(());
-                            } else {
-                                eprintln!("Error: Not a directory");
-                                return Ok(());
-                            }
+                    if let Ok(sftp) = client.session.sftp()
+                        && let Ok(stat) = sftp.stat(&new_path)
+                    {
+                        if stat.is_dir() {
+                            println!(
+                                "{} {}",
+                                "(Local) Changed dir to".green(),
+                                new_path.display()
+                            );
+                            client.current_directory = new_path;
+                            return Ok(());
+                        } else {
+                            eprintln!("{}", "Error: Not a directory".red());
+                            return Ok(());
                         }
                     }
 
@@ -133,20 +137,26 @@ fn get_commands() -> HashMap<String, ReplCommand> {
 
                     ls_channel.wait_close()?;
                     if ls_channel.exit_status()? == 0 {
-                        println!("(Local-Force) Changed dir to {}", new_path.display());
+                        println!(
+                            "{} {}",
+                            "(Local-Force) Changed dir to".green(),
+                            new_path.display()
+                        );
                         client.current_directory = new_path;
                         return Ok(());
                     }
                 }
 
                 if !stderr.is_empty() {
-                    eprintln!("Error changing directory: {}", stderr.trim());
+                    eprintln!("{} {}", "Error changing directory:".red(), stderr.trim());
                 } else if !output.trim().is_empty() {
-                    eprintln!("Error changing directory: {}", output.trim());
+                    eprintln!("{} {}", "Error changing directory:".red(), output.trim());
                 } else {
                     eprintln!(
-                        "Error changing directory: Unknown error (exit status {})",
-                        exit_status
+                        "{} {} {}",
+                        "Error changing directory:".red(),
+                        "Unknown error (exit status".red(),
+                        exit_status.to_string().red()
                     );
                 }
 
@@ -181,7 +191,7 @@ fn fetch_remote_resource(
     remote_path: &PathBuf,
     local_path: &PathBuf,
 ) -> Result<bool, Box<dyn Error>> {
-    println!("Fetching {}...", remote_path.display());
+    println!("{} {}", "Fetching".cyan(), remote_path.display());
 
     let is_dir = if let Ok(sftp) = client.session.sftp() {
         match sftp.stat(remote_path) {
@@ -279,7 +289,7 @@ fn cmd_copy(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     let local_path = PathBuf::from(&destination).join(remote_path.file_name().unwrap_or_default());
 
     fetch_remote_resource(client, &remote_path, &local_path)?;
-    println!("Copied to {}", local_path.display());
+    println!("{} {}", "Copied to".green(), local_path.display());
 
     Ok(())
 }
@@ -317,28 +327,30 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     let is_dir = fetch_remote_resource(client, &remote_path, &local_path)?;
 
     let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    println!("Opening in {}...", editor);
+    println!("{} {}", "Opening in".cyan(), editor);
 
     let edit_target = local_path.clone();
 
     let status = Command::new(&editor).arg(&edit_target).status()?;
     if !status.success() {
-        eprintln!("Editor exited with error");
+        eprintln!("{}", "Editor exited with error".red());
     }
 
-    println!("Sync changes? [y/n]: ");
+    print!("{} ", "Sync changes? [y/n]:".yellow().bold());
+    std::io::stdout().flush()?;
+
     let mut response = String::new();
     std::io::stdin()
         .read_line(&mut response)
         .expect("Failed to get input");
 
     if response.trim().eq_ignore_ascii_case("n") {
-        println!("Not syncing changes.");
+        println!("{}", "Not syncing changes.".dimmed());
         return Ok(());
     }
 
     // Upload (Copy Back)
-    println!("Syncing back...");
+    println!("{}", "Syncing back".cyan());
     if is_dir {
         let (local_parent, local_dirname, remote_dest) = if target == "." {
             (
@@ -377,7 +389,7 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
         let mut output = String::new();
         channel.read_to_string(&mut output)?;
         if !output.is_empty() {
-            eprintln!("Remote tar output: {}", output);
+            eprintln!("{} {}", "Remote tar output:".yellow(), output);
         }
 
         channel.wait_close()?;
@@ -393,7 +405,7 @@ fn cmd_edit(client: &mut SSHClient, rl: &mut DefaultEditor, args: &[&str]) -> Re
     }
 
     fs::remove_dir_all(&temp_base).ok();
-    println!("Done.");
+    println!("{}", "Done.".green());
 
     Ok(())
 }
@@ -428,13 +440,13 @@ fn run_remote_command(client: &mut SSHClient, cmd: &str) -> ReplResult {
 
         println!("{}", output_retry);
         if !stderr_retry.is_empty() {
-            eprint!("{}", stderr_retry);
+            eprint!("{}", stderr_retry.red());
         }
         channel_retry.wait_close()?;
     } else {
         println!("{}", output);
         if !stderr.is_empty() {
-            eprint!("{}", stderr);
+            eprint!("{}", stderr.red());
         }
     }
 
@@ -446,11 +458,19 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
     let commands = get_commands();
 
     loop {
-        let prompt = format!(
+        // Style the prompt: trump > user@host:port >
+        let prompt_str = format!(
             "trump > {}@{}:{} > ",
             shell_client.user, shell_client.host_name, shell_client.port
         );
-        let readline = rl.readline(prompt.as_str());
+        // Rustyline doesn't easily support colored strings with ansi codes in the prompt width calc
+        // without some extra work, but we can try passing the colored string directly.
+        // It might mess up cursor positioning if the length isn't calculated sans-codes.
+        // For safety, let's color the segments but be careful.
+        // Actually, for simplicity/reliability, standard text is safer unless we implement Helper trait.
+        // Let's stick to standard prompt for now to avoid cursor bugs, or try bold.
+
+        let readline = rl.readline(prompt_str.as_str());
 
         match readline {
             Ok(line) => {
@@ -466,15 +486,15 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
                 match cmd_name {
                     "exit" => break,
                     "help" => {
-                        println!("\n--- TRUMP Commands ---");
+                        println!("\n{}", "--- TRUMP Commands ---".bold().underline());
                         for cmd in commands.values() {
-                            println!("  {:<8}: {}", cmd.name, cmd.description);
+                            println!("  {:<8}: {}", cmd.name.green(), cmd.description);
                         }
                     }
                     _ => {
                         if let Some(command) = commands.get(cmd_name) {
                             if let Err(e) = (command.function)(&mut shell_client, &mut rl, args) {
-                                eprintln!("Command Error: {}", e);
+                                eprintln!("{} {}", "Command Error:".red().bold(), e);
                             }
                         } else if let Some(stripped_prefix) = cmd_name.strip_prefix("!") {
                             run_remote_command(
@@ -482,14 +502,14 @@ pub fn repl(mut shell_client: SSHClient) -> Result<(), Box<dyn Error>> {
                                 format!("{} {}", stripped_prefix, &args.join(" ")).as_str(),
                             )?;
                         } else {
-                            println!("Unknown command. Try 'help'");
+                            println!("{} {}", "Unknown command.".red(), "Try 'help'".yellow());
                         }
                     }
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("{} {:?}", "Error:".red(), err);
                 break;
             }
         }
